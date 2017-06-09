@@ -3,17 +3,22 @@ package journalhook
 import (
 	"fmt"
 	"io/ioutil"
+	"log"
 	"strings"
 
 	"github.com/coreos/go-systemd/journal"
-	logrus "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
-type JournalHook struct {
-	LogrusLevels []logrus.Level
+type journalHook struct {
+	levels    []logrus.Level
+	formatter logrus.Formatter
 }
 
 var (
+	// We are logging to file, strip colors to make the output more readable
+	txtFormatter = &logrus.TextFormatter{DisableColors: true}
+
 	severityMap = map[logrus.Level]journal.Priority{
 		logrus.DebugLevel: journal.PriDebug,
 		logrus.InfoLevel:  journal.PriInfo,
@@ -21,6 +26,15 @@ var (
 		logrus.ErrorLevel: journal.PriErr,
 		logrus.FatalLevel: journal.PriCrit,
 		logrus.PanicLevel: journal.PriEmerg,
+	}
+
+	allLevels = []logrus.Level{
+		logrus.PanicLevel,
+		logrus.FatalLevel,
+		logrus.ErrorLevel,
+		logrus.WarnLevel,
+		logrus.InfoLevel,
+		logrus.DebugLevel,
 	}
 )
 
@@ -60,24 +74,31 @@ func stringifyEntries(data map[string]interface{}) map[string]string {
 	return entries
 }
 
-func (hook *JournalHook) Fire(entry *logrus.Entry) error {
+func (hook *journalHook) Fire(entry *logrus.Entry) error {
+	// use our formatter instead of entry.String()
+	msg, err := hook.formatter.Format(entry)
+	if err != nil {
+		log.Println("failed to generate string for entry:", err)
+		return err
+	}
+
 	return journal.Send(entry.Message, severityMap[entry.Level], stringifyEntries(entry.Data))
 }
 
 // `Levels()` returns a slice of `Levels` the hook is fired for.
-func (hook *JournalHook) Levels() []logrus.Level {
-	if len(hook.LogrusLevels) == 0 {
-		return []logrus.Level{
-			logrus.PanicLevel,
-			logrus.FatalLevel,
-			logrus.ErrorLevel,
-			logrus.WarnLevel,
-			logrus.InfoLevel,
-			logrus.DebugLevel,
-		}
+func (hook *journalHook) Levels() []logrus.Level {
+	if len(hook.levels) == 0 {
+		return allLevels
 	}
 
-	return hook.LogrusLevels
+	return hook.levels
+}
+
+func New(levels []logrus.Level) *journalHook {
+	return &journalHook{
+		levels:    levels,
+		formatter: txtFormatter,
+	}
 }
 
 // Adds the Journal hook if journal is enabled
@@ -86,7 +107,7 @@ func Enable() {
 	if !journal.Enabled() {
 		logrus.Warning("Journal not available but user requests we log to it. Ignoring")
 	} else {
-		logrus.AddHook(&JournalHook{})
+		logrus.AddHook(New(allLevels))
 		logrus.SetOutput(ioutil.Discard)
 	}
 }
