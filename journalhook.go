@@ -3,7 +3,6 @@ package journalhook
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
 	"strings"
 
 	"github.com/coreos/go-systemd/journal"
@@ -75,13 +74,6 @@ func stringifyEntries(data map[string]interface{}) map[string]string {
 }
 
 func (hook *journalHook) Fire(entry *logrus.Entry) error {
-	// use our formatter instead of entry.String()
-	msg, err := hook.formatter.Format(entry)
-	if err != nil {
-		log.Println("failed to generate string for entry:", err)
-		return err
-	}
-
 	return journal.Send(entry.Message, severityMap[entry.Level], stringifyEntries(entry.Data))
 }
 
